@@ -1,0 +1,8 @@
+{
+  "collection": "mf_faq_hdfc",
+  "chunk_count": 238,
+  "built_at": "2026-10-04T14:32:13.120104Z",
+  "embedding_fingerprint": "d31f03babb96",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "embedding_device": "cpu"
+}
