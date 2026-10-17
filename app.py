@@ -30,9 +30,6 @@ def render_message(msg: AssistantMessage, trace: dict | None = None) -> None:
             st.caption(f"{config.LAST_UPDATED_PREFIX}{msg.last_updated}")
         if msg.cached:
             st.badge("cached")
-        generation = (trace or {}).get("stage_10_generation") or {}
-        if generation.get("mode") == pipeline.EXTRACTIVE_MODE and generation.get("reason"):
-            st.caption(f"Drafted from the corpus text — {generation['reason']}.")
     else:
         st.info(msg.text)
         if msg.source_url:
@@ -127,6 +124,13 @@ def _corpus_sidebar(searchable: bool, reason: str) -> None:
         st.caption(f"Embedding: {config.EMBED_MODEL}")
         st.caption(f"Vector DB: ChromaDB / {config.CHROMA_COLLECTION}")
         st.caption(f"Last indexed: {stats.get('built_at') or '—'}")
+        if pipeline.llm_available():
+            st.caption(f"Answers: {config.GENERATOR_MODEL}")
+        else:
+            st.caption(
+                "Answers: corpus text only — no GROQ_API_KEY configured, so the "
+                "model is not called."
+            )
 
         st.dataframe(
             [
