@@ -55,14 +55,61 @@ def _render_sources_expander(trace: dict) -> None:
             st.caption(chunk.get("preview") or "")
 
 
+def _live_chunk_count() -> int:
+    """Chunks actually present in the Chroma collection.
+
+    ``data/index_meta.json`` is committed while ``data/chroma/`` is not, so a
+    fresh deployment reports a healthy, 228-chunk index while the collection it
+    describes does not exist yet - and every query then returns nothing. The
+    live count, not the metadata file, is what decides whether retrieval can
+    work.
+    """
+    try:
+        return vectorstore.get_collection().count()
+    except Exception:  # noqa: BLE001 - a missing/unopenable collection is "0"
+        return 0
+
+
+def _ensure_index() -> tuple[bool, str]:
+    """Build the index on first load when no live collection exists.
+
+    Returns:
+        ``(searchable, reason)``. Any exception is caught and reported rather
+        than raised: the UI must render a warning, never a crash.
+    """
+    stale, reason = vectorstore.is_index_stale()
+    if not stale and _live_chunk_count():
+        return True, "ok"
+    try:
+        from run_index import main as run_main
+
+        with st.spinner(
+            "Building the search index (first load only - downloads the embedding "
+            "model and embeds the committed corpus)... "
+        ):
+            if not vectorstore.load_chunks():
+                run_main(["--stage", "chunk"])
+            run_main(["--stage", "index", "--rebuild"])
+            vectorstore.reset_collection_cache()
+    except Exception as exc:  # noqa: BLE001 - degrade to a warning, not a crash
+        return False, f"index build failed: {exc}"
+    count = _live_chunk_count()
+    if not count:
+        return False, "index build produced no chunks"
+    return True, "ok"
+
+
 def _corpus_sidebar() -> None:
     """Corpus stats, index health, the source list and the index controls."""
     with st.sidebar:
         st.subheader("Corpus")
         stale, reason = vectorstore.is_index_stale()
         stats = vectorstore.get_stats()
+        live = _live_chunk_count()
         if stale:
             st.warning(f"Index stale: {reason}. Rebuild it below.")
+        elif not live:
+            st.warning("Index metadata present but the collection is empty. Building...")
         else:
             st.success("Index built")
         st.caption(f"Docs: {stats.get('doc_count') or 0}")
@@ -181,12 +228,12 @@ def main() -> None:
 
     _corpus_sidebar()
 
-    stats = vectorstore.get_stats()
-    stale, _reason = vectorstore.is_index_stale()
-    if stale or not stats.get("chunk_count"):
+    searchable, reason = _ensure_index()
+    if not searchable:
         st.warning(
-            "No searchable index found. Click **Rebuild index** in the sidebar "
-            "to build it from the committed corpus."
+            "No searchable index found and the automatic build did not complete "
+            f"({reason}). Click **Rebuild index** in the sidebar to build it from "
+            "the committed corpus."
         )
         return
 
