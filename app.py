@@ -99,17 +99,22 @@ def _ensure_index() -> tuple[bool, str]:
     return True, "ok"
 
 
-def _corpus_sidebar() -> None:
-    """Corpus stats, index health, the source list and the index controls."""
+def _corpus_sidebar(searchable: bool, reason: str) -> None:
+    """Corpus stats, index health, the source list and the index controls.
+
+    Args:
+        searchable: Whether the collection can actually answer queries (the
+            result of the startup :func:`_ensure_index` attempt).
+        reason: ``"ok"`` when searchable, otherwise why it is not.
+    """
     with st.sidebar:
         st.subheader("Corpus")
-        stale, reason = vectorstore.is_index_stale()
+        stale, stale_reason = vectorstore.is_index_stale()
         stats = vectorstore.get_stats()
-        live = _live_chunk_count()
-        if stale:
-            st.warning(f"Index stale: {reason}. Rebuild it below.")
-        elif not live:
-            st.warning("Index metadata present but the collection is empty. Building...")
+        if not searchable:
+            st.warning(f"No searchable index: {reason}. Use **Rebuild index** below.")
+        elif stale:
+            st.warning(f"Index stale: {stale_reason}. Rebuild it below.")
         else:
             st.success("Index built")
         st.caption(f"Docs: {stats.get('doc_count') or 0}")
@@ -226,9 +231,8 @@ def main() -> None:
     st.write(config.WELCOME_LINE)
     st.info(config.DISCLAIMER)
 
-    _corpus_sidebar()
-
     searchable, reason = _ensure_index()
+    _corpus_sidebar(searchable, reason)
     if not searchable:
         st.warning(
             "No searchable index found and the automatic build did not complete "
