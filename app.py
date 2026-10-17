@@ -7,12 +7,33 @@ live in ``src.pipeline``. See ARCHITECTURE.md and IMPLEMENTATION.md (Phase 8).
 from __future__ import annotations
 
 import json
+import os
 
 import streamlit as st
 
 from src import config, pipeline
 from src import vectorstore
 from src.types import AssistantMessage
+
+
+def _import_streamlit_secrets() -> None:
+    """Publish Streamlit secrets as environment variables.
+
+    Streamlit Cloud stores app secrets in a TOML file that only
+    ``st.secrets`` can read, while ``config.load_api_key`` reads the
+    environment. Without this bridge a key added under Settings → Secrets is
+    invisible to the pipeline and every answer silently degrades to the
+    extractive path.
+
+    A missing or malformed secrets file is ignored: local development has
+    neither, and a broken TOML must never take the UI down.
+    """
+    try:
+        for name, value in st.secrets.items():
+            if isinstance(value, str) and name and name == name.upper():
+                os.environ.setdefault(name, value)
+    except Exception:  # noqa: BLE001 - no secrets file, bad TOML, or a section
+        return
 
 
 def render_message(msg: AssistantMessage, trace: dict | None = None) -> None:
@@ -235,6 +256,7 @@ def main() -> None:
         page_icon="📊",
         layout="centered",
     )
+    _import_streamlit_secrets()
 
     st.title("MF Facts")
     st.write(config.WELCOME_LINE)
