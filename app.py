@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
+from pathlib import Path
 
 import streamlit as st
 
@@ -15,8 +17,31 @@ from src import config, pipeline
 from src import vectorstore
 from src.types import AssistantMessage
 
+#: What the secrets bridge found, for the sidebar. Never contains a value.
+_SECRETS_NOTE = "secrets: not read yet"
 
-def _import_streamlit_secrets() -> None:
+
+def _publish_secret(name: str, value: object, found: list[str]) -> None:
+    """Publish one secret as an environment variable, case-insensitively.
+
+    Accepts ``GROQ_API_KEY``, ``groq_api_key`` and ``[groq] api_key`` alike -
+    a key that is present but spelled differently must not silently disable
+    the model.
+
+    Args:
+        name: The secret's name (section prefix already joined with ``_``).
+        value: The secret's value, or a nested mapping for a TOML section.
+        found: Accumulates the names that were seen, for the sidebar note.
+    """
+    if isinstance(value, str):
+        os.environ.setdefault(name.upper(), value)
+        found.append(name)
+    elif isinstance(value, Mapping):
+        for sub_name, sub_value in value.items():
+            _publish_secret(f"{name}_{sub_name}", sub_value, found)
+
+
+def _import_streamlit_secrets() -> str:
     """Publish Streamlit secrets as environment variables.
 
     Streamlit Cloud stores app secrets in a TOML file that only
@@ -25,15 +50,58 @@ def _import_streamlit_secrets() -> None:
     invisible to the pipeline and every answer silently degrades to the
     extractive path.
 
-    A missing or malformed secrets file is ignored: local development has
-    neither, and a broken TOML must never take the UI down.
+    Returns:
+        A note describing what was found - key *names* and error types only,
+        never a value. It is rendered in the sidebar so a misconfigured
+        deployment says which of the three failure modes it is in.
     """
+    global _SECRETS_NOTE
     try:
-        for name, value in st.secrets.items():
-            if isinstance(value, str) and name and name == name.upper():
-                os.environ.setdefault(name, value)
-    except Exception:  # noqa: BLE001 - no secrets file, bad TOML, or a section
-        return
+        items = list(st.secrets.items())
+    except FileNotFoundError as exc:
+        # One exception class covers both "no file" and "file does not parse".
+        first_line = (str(exc).strip().splitlines() or [""])[0]
+        if "parsing" in first_line.lower():
+            _SECRETS_NOTE = f"secrets: invalid TOML — {first_line[:160]}"
+        else:
+            _SECRETS_NOTE = (
+                "secrets: no secrets.toml found for this app "
+                "(set GROQ_API_KEY in .env locally, or in Settings → Secrets online)"
+            )
+        return _SECRETS_NOTE
+    except Exception as exc:  # noqa: BLE001 - bad TOML must not take the UI down
+        _SECRETS_NOTE = f"secrets: {type(exc).__name__}: {exc}"
+        return _SECRETS_NOTE
+
+    found: list[str] = []
+    for name, value in items:
+        _publish_secret(str(name), value, found)
+    if os.environ.get("GROQ_API_KEY"):
+        _SECRETS_NOTE = f"secrets: published {', '.join(sorted(set(found)))}"
+    else:
+        seen = ", ".join(sorted(set(found))) or "nothing usable"
+        _SECRETS_NOTE = f"secrets: found {seen} — no GROQ_API_KEY among them"
+    return _SECRETS_NOTE
+
+
+def _git_revision() -> str:
+    """Short commit the running app was built from, or ``""`` outside a clone."""
+    git_dir = Path(__file__).resolve().parent / ".git"
+    try:
+        head = (git_dir / "HEAD").read_text(encoding="ascii").strip()
+        if not head.startswith("ref:"):
+            return head[:7]
+        ref = head.split(" ", 1)[1].strip()
+        packed = git_dir / "packed-refs"
+        if (git_dir / ref).exists():
+            return (git_dir / ref).read_text(encoding="ascii").strip()[:7]
+        if packed.exists():
+            for line in packed.read_text(encoding="ascii").splitlines():
+                if line.endswith(f" {ref}") or line.endswith(ref):
+                    return line.split()[0][:7]
+    except Exception:  # noqa: BLE001 - a missing .git is normal for a tarball deploy
+        return ""
+    return ""
 
 
 def render_message(msg: AssistantMessage, trace: dict | None = None) -> None:
@@ -148,10 +216,13 @@ def _corpus_sidebar(searchable: bool, reason: str) -> None:
         if pipeline.llm_available():
             st.caption(f"Answers: {config.GENERATOR_MODEL}")
         else:
-            st.caption(
-                "Answers: corpus text only — no GROQ_API_KEY configured, so the "
-                "model is not called."
-            )
+            st.caption("Answers: corpus text only — the model is not called.")
+            if config.EXTRACTIVE_ONLY:
+                st.caption("reason: EXTRACTIVE_ONLY=1 is set")
+            st.caption(_SECRETS_NOTE)
+            revision = _git_revision()
+            if revision:
+                st.caption(f"build: {revision}")
 
         st.dataframe(
             [
