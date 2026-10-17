@@ -374,6 +374,61 @@ def _extractive_body(plan: QueryPlan, chunk: RetrievedChunk) -> str:
     return " ".join(sentences[:limit])
 
 
+def _companion_facts(
+    plan: QueryPlan, result: RetrievalResult, primary: RetrievedChunk, body: str
+) -> str:
+    """Add the expected-label facts the primary chunk does not carry.
+
+    Some sections put one fact per chunk: the fund-manager block gives every
+    manager their own heading, so a body built from the single best chunk names
+    only one of the two managers a scheme has. The other retrieved chunks whose
+    label grounds the same intent are checked for a heading fact the body is
+    still missing, and appended within the sentence cap.
+
+    Every addition is a verbatim heading from a retrieved chunk, so the
+    "everything quoted comes from the context" property still holds.
+
+    Args:
+        plan: The Stage 5 plan.
+        result: The retrieval outcome.
+        primary: The chunk the body was built from.
+        body: The body built by :func:`_extractive_body`.
+
+    Returns:
+        ``body`` unchanged, or the body with up to
+        :data:`src.config.MAX_ANSWER_SENTENCES` - ``sentence_count(body)`` facts
+        appended.
+    """
+    labels = guardrails.expected_labels(plan.intent)
+    if not labels or not body.strip():
+        return body
+    budget = config.MAX_ANSWER_SENTENCES - config.sentence_count(body)
+    if budget <= 0:
+        return body
+    extra: list[str] = []
+    for retrieved in result.chunks:
+        if len(extra) >= budget:
+            break
+        if retrieved is primary:
+            continue
+        if not any(
+            _mentions(f"{retrieved.label} {retrieved.section}", label)
+            for label in labels
+        ):
+            continue
+        if not _has_body(plan, retrieved):
+            continue
+        fact = _heading_fact(retrieved, labels)
+        if fact and fact not in body and all(fact not in seen for seen in extra):
+            extra.append(fact)
+    if not extra:
+        return body
+    joined = body.strip()
+    for fact in extra:
+        joined = f"{joined.rstrip().rstrip('.')}. {fact}"
+    return joined
+
+
 def answer_extractive(plan: QueryPlan, result: RetrievalResult) -> AssistantMessage:
     """Answer from the retrieved chunk without calling a model.
 
@@ -396,7 +451,7 @@ def answer_extractive(plan: QueryPlan, result: RetrievalResult) -> AssistantMess
         return citation.finalise_refusal(refusal)
 
     chunk = _pick_chunk(plan, result)
-    body = _extractive_body(plan, chunk)
+    body = _companion_facts(plan, result, chunk, _extractive_body(plan, chunk))
     response = LLMResponse(
         answer=body,
         source_index=chunk.rank,
@@ -475,6 +530,7 @@ def _retrieval_trace(result: RetrievalResult, plan: QueryPlan) -> dict[str, Any]
                 "score": round(retrieved.score, 4),
                 "label": retrieved.chunk.get("label", ""),
                 "section": retrieved.chunk.get("section", ""),
+                "scheme_name": retrieved.chunk.get("scheme_name", ""),
                 "source_url": retrieved.source_url,
                 "preview": str(retrieved.chunk.get("text", ""))[: config.CHUNK_PREVIEW_CHARS],
             }

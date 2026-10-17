@@ -110,6 +110,17 @@ MANAGER_CHUNK = _chunk(
     1,
 )
 
+SECOND_MANAGER_CHUNK = _chunk(
+    "### RB Rahul Baijal Jul 2022 - Present View details\n\nEducation\nMr. Baijal has "
+    "done PGDM(MBA) from IIM Calcutta and is an engineering graduate of Delhi college "
+    "of Engineering\nExperience\nPrior to joining HDFC Mutual Fund, he has worked with "
+    "Sundaram Mutual Fund, Bharti AXA Life Insurance, TVF Capital, HSBC Securities, "
+    "Credit Suisse Securities & Standard Chartered Bank.",
+    "Fund management",
+    0.91,
+    2,
+)
+
 
 @pytest.fixture
 def fake_retrieval(monkeypatch: pytest.MonkeyPatch) -> RetrievalResult:
@@ -185,6 +196,28 @@ def test_extractive_fund_manager_answer_names_the_manager(
     assert message.kind == "answer"
     assert "Dhruv Muchhal" in message.text
     assert "Jun 2023" in message.text
+
+
+def test_extractive_fund_manager_answer_names_every_retrieved_manager(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The corpus gives each manager their own chunk.
+
+    A body built from the single picked chunk would name only the first manager
+    and silently drop the second one a scheme legitimately has.
+    """
+    result = RetrievalResult(
+        chunks=[MANAGER_CHUNK, SECOND_MANAGER_CHUNK],
+        dropped_low_score=0,
+        dropped_scheme_mismatch=0,
+        confidence=0.92,
+        used_filter=True,
+    )
+    monkeypatch.setattr(pipeline, "retrieve", lambda plan: result)
+    message = pipeline.answer("who is the fund manager of HDFC Large Cap").message
+    assert "Dhruv Muchhal" in message.text
+    assert "Rahul Baijal" in message.text
+    assert len(config.split_sentences(message.text)) <= config.MAX_ANSWER_SENTENCES
 
 
 def test_extractive_never_exceeds_the_sentence_cap(fake_retrieval: RetrievalResult) -> None:

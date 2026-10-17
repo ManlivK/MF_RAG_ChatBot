@@ -30,6 +30,9 @@ def render_message(msg: AssistantMessage, trace: dict | None = None) -> None:
             st.caption(f"{config.LAST_UPDATED_PREFIX}{msg.last_updated}")
         if msg.cached:
             st.badge("cached")
+        generation = (trace or {}).get("stage_10_generation") or {}
+        if generation.get("mode") == pipeline.EXTRACTIVE_MODE and generation.get("reason"):
+            st.caption(f"Drafted from the corpus text — {generation['reason']}.")
     else:
         st.info(msg.text)
         if msg.source_url:
@@ -51,7 +54,9 @@ def _render_sources_expander(trace: dict) -> None:
     with st.expander("Sources", expanded=False):
         for chunk in chunks[:3]:
             label = chunk.get("label") or chunk.get("section") or ""
-            st.write(f"[{chunk['rank']}] {label} · score={chunk.get('score')}")
+            scheme = chunk.get("scheme_name") or ""
+            title = f"{label} · {scheme}" if scheme else label
+            st.write(f"[{chunk['rank']}] {title} · score={chunk.get('score')}")
             st.caption(chunk.get("preview") or "")
 
 
