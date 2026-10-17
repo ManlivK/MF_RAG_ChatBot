@@ -1,0 +1,13 @@
+scheme_key,scheme_name,category,url,publisher,fetched_at,http_status,stale
+hdfc-large-cap,HDFC Large Cap Fund — Direct Growth,Large Cap,https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth,Groww (public mirror of HDFC AMC data),2026-10-15,200,False
+hdfc-equity-flexi-cap,HDFC Equity (Flexi Cap) Fund — Direct Growth,Flexi Cap,https://groww.in/mutual-funds/hdfc-equity-fund-direct-growth,Groww (public mirror of HDFC AMC data),2026-10-15,200,False
+hdfc-elss-tax-saver,HDFC ELSS Tax Saver — Direct Growth,ELSS,https://groww.in/mutual-funds/hdfc-elss-tax-saver-fund-direct-plan-growth,Groww (public mirror of HDFC AMC data),2026-10-15,200,False
+hdfc-small-cap,HDFC Small Cap Fund — Direct Growth,Small Cap,https://groww.in/mutual-funds/hdfc-small-cap-fund-direct-growth,Groww (public mirror of HDFC AMC data),2026-10-15,200,False
+hdfc-balanced-advantage,HDFC Balanced Advantage Fund — Direct Growth,Hybrid,https://groww.in/mutual-funds/hdfc-balanced-advantage-fund-direct-growth,Groww (public mirror of HDFC AMC data),2026-10-15,200,False
+hdfc-elss-tax-saver,HDFC ELSS Tax Saver — Lock-In Period and Section 80C,ELSS,https://www.hdfcfund.com/explore/mutual-funds/hdfc-elss-tax-saver-fund/direct,HDFC Asset Management (official AMC page; hand-authored),2026-09-27,403,False
+all-schemes,How to Download a Capital Gains Statement,Tax Documents,https://www.hdfcfund.com/learners-corner/beginner/how-get-capital-gain-statement-mutual-fund-schemes-india,HDFC Asset Management (official AMC page; hand-authored),2026-09-27,403,False
+hdfc-large-cap,HDFC Large Cap Fund — Inception Date,Large Cap,https://www.hdfcfund.com/explore/mutual-funds/hdfc-large-cap-fund/regular,HDFC Asset Management (official AMC page; hand-authored),2026-10-15,403,False
+hdfc-equity-flexi-cap,HDFC Flexi Cap Fund — Inception Date,Flexi Cap,https://www.hdfcfund.com/explore/mutual-funds/hdfc-flexi-cap-fund/regular,HDFC Asset Management (official AMC page; hand-authored),2026-10-15,403,False
+hdfc-elss-tax-saver,HDFC ELSS Tax Saver — Inception Date,ELSS,https://www.hdfcfund.com/explore/mutual-funds/hdfc-elss-tax-saver/regular,HDFC Asset Management (official AMC page; hand-authored),2026-10-15,403,False
+hdfc-small-cap,HDFC Small Cap Fund — Inception Date,Small Cap,https://www.hdfcfund.com/explore/mutual-funds/hdfc-small-cap-fund/regular,HDFC Asset Management (official AMC page; hand-authored),2026-10-15,403,False
+hdfc-balanced-advantage,HDFC Balanced Advantage Fund — Inception Date,Hybrid,https://www.hdfcfund.com/explore/mutual-funds/hdfc-balanced-advantage-fund/regular,HDFC Asset Management (official AMC page; hand-authored),2026-10-15,403,False

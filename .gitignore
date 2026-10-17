@@ -1,0 +1,21 @@
+# Secrets - never commit
+.env
+.streamlit/secrets.toml
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Rebuildable index and logs
+data/chroma/
+logs/*.jsonl
+
+# OS
+.DS_Store
+Thumbs.db

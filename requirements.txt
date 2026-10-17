@@ -1,0 +1,29 @@
+# Direct dependencies, human-readable. Exact pins live in requirements.lock.txt
+# (generated with `python -m pip freeze`). Do not hand-edit pins in the lock file.
+
+# UI
+streamlit
+
+# Ingestion (stage 1)
+requests
+beautifulsoup4
+markdownify
+lxml
+
+# RAG core
+chromadb
+langchain-core
+langchain-text-splitters
+langchain-huggingface
+langchain-chroma
+sentence-transformers
+
+# Generation (stage 10)
+langchain-groq
+
+# Utilities
+tiktoken
+python-dotenv
+
+# Tests
+pytest

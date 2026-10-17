@@ -1,8 +1,16 @@
 {
   "collection": "mf_faq_hdfc",
-  "chunk_count": 238,
-  "built_at": "2026-10-04T14:32:13.120104Z",
-  "embedding_fingerprint": "d31f03babb96",
   "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
-  "embedding_device": "cpu"
+  "embedding_fingerprint": "4b24fa8a03e3",
+  "embedding_dim": 384,
+  "embedding_device": "cpu",
+  "doc_embed_prefix": "Represent this mutual fund scheme document for retrieval: ",
+  "chunk_size_tokens": 400,
+  "chunk_overlap_tokens": 50,
+  "chunk_strategy": "structure-aware-v1",
+  "distance": "cosine",
+  "doc_count": 6,
+  "chunk_count": 228,
+  "built_at": "2026-10-17T13:42:55.407176+00:00",
+  "generator_model": "openai/gpt-oss-120b"
 }
