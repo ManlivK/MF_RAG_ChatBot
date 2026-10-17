@@ -1005,7 +1005,7 @@ FACT_TYPES: dict[Intent, dict[str, list[str]]] = {
     },
     "min_lump_sum": {
         "keywords": ["minimum lump sum", "lump sum", "one time", "min investment"],
-        "expected_labels": ["minimum lump sum", "lump sum", "how to invest", "investment"],
+        "expected_labels": ["minimum lump sum", "lump sum", "lumpsum", "how to invest", "investment"],
     },
     "lock_in": {
         "keywords": ["lock-in", "lock in", "lockin", "elss lock"],
@@ -1317,7 +1317,7 @@ def split_sentences(text: str) -> list[str]:
     protected = re.sub(r"\s+", " ", text).strip()
     if not protected:
         return []
-    for abbr in ("e.g.", "i.e.", "etc.", "vs.", "approx.", "Dr.", "Mr.", "Mrs.", "No."):
+    for abbr in ("e.g.", "i.e.", "etc.", "vs.", "approx.", "Dr.", "Mr.", "Mrs.", "No.", "Min."):
         protected = protected.replace(abbr, abbr[:-1] + "\x00")
     parts = [p.replace("\x00", ".").strip() for p in re.split(r"(?<=[.!?])\s+", protected)]
     return [p for p in parts if p]

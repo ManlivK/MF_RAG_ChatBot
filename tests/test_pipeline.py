@@ -217,7 +217,43 @@ def test_extractive_fund_manager_answer_names_every_retrieved_manager(
     message = pipeline.answer("who is the fund manager of HDFC Large Cap").message
     assert "Dhruv Muchhal" in message.text
     assert "Rahul Baijal" in message.text
+    # One field, both managers, tenure bracketed rather than run on after the name.
+    assert message.text.count("Fund management:") == 1
+    assert "(Jun 2023 - Present)" in message.text
+    assert "(Jul 2022 - Present)" in message.text
     assert len(config.split_sentences(message.text)) <= config.MAX_ANSWER_SENTENCES
+
+
+def test_extractive_min_sip_answer_quotes_only_the_asked_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The scheme card stacks the SIP and lump-sum rows under one heading.
+
+    A min-SIP question must quote the SIP row and say which fund it is for,
+    not paste every row of the card.
+    """
+    card = _chunk(
+        "### Minimum investments\n\nMin. for 1st investment\n₹500\nMin. for 2nd investment\n"
+        "₹500\nMin. for SIP\n₹500",
+        "Minimum SIP",
+        0.93,
+        1,
+        scheme_key="hdfc-elss-tax-saver",
+    )
+    result = RetrievalResult(
+        chunks=[card],
+        dropped_low_score=0,
+        dropped_scheme_mismatch=0,
+        confidence=0.93,
+        used_filter=True,
+    )
+    monkeypatch.setattr(pipeline, "retrieve", lambda plan: result)
+    message = pipeline.answer("min sip for elss?").message
+    spec = next(s for s in config.SOURCES if s.scheme_key == "hdfc-elss-tax-saver")
+    assert message.text.startswith(spec.scheme_name)
+    assert "Min. for SIP" in message.text
+    assert "₹500" in message.text
+    assert "1st investment" not in message.text
 
 
 def test_extractive_never_exceeds_the_sentence_cap(fake_retrieval: RetrievalResult) -> None:

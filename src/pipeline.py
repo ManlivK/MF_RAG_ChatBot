@@ -11,9 +11,11 @@ rendering invariant.
 when no key is configured, the key is missing, the model errors, or the model
 disobeys the JSON contract (``EXTRACTIVE_ONLY``). A 429 from a free-tier key must not
 turn a working demo into a stack trace. It is a *degradation*, not a separate
-product: the extractive body is built only out of verbatim sentences from the chosen
-chunk, and it goes through the identical sentence cap, URL stripping, link resolution
-and invariant check as an LLM answer.
+product: the extractive body is assembled from verbatim facts and sentences of the
+retrieved chunks - labelled with the scheme they belong to, and ranked by how
+precisely the chunk names the fact that was asked for - and it goes through the
+identical sentence cap, URL stripping, link resolution and invariant check as an
+LLM answer.
 """
 
 from __future__ import annotations
@@ -157,17 +159,56 @@ def extract_sentences(text: str) -> list[str]:
     return [_terminal(part) for part in parts if part and part not in {".", "!", "?"}]
 
 
+def _label_tier(line: str, labels: list[str]) -> int | None:
+    """How precisely this line names one of the expected labels.
+
+    Equality first: "Exit load of 1% if redeemed within 1 year" mentions a label
+    but is a sentence, and quoting a whole paragraph is what equality avoids.
+    The stacked cards do abbreviate a field name though ("Min. for SIP" for
+    ``minimum sip``), so a short, digit-free, punctuation-free line that
+    *contains* the label still names a field rather than prose.
+
+    Args:
+        line: One line of chunk text.
+        labels: Expected labels, in priority order.
+
+    Returns:
+        The index of the most precise label this line names, or ``None`` when
+        it names none - which is also what makes it unusable as a value line.
+    """
+    wanted = [label.lower().replace("-", " ") for label in labels]
+    candidate = line.strip().rstrip(":").strip().lower().replace("-", " ")
+    if not candidate or len(candidate) > 40:
+        return None
+    exact = [index for index, label in enumerate(wanted) if candidate == label]
+    if exact:
+        return min(exact)
+    if (
+        len(candidate) > 30
+        or candidate.endswith(".")
+        or "%" in candidate
+        or re.search(r"\d", candidate)
+        or len(candidate.split()) > 6
+    ):
+        return None
+    contained = [index for index, label in enumerate(wanted) if label and label in candidate]
+    return min(contained) if contained else None
+
+
 def _is_label_line(line: str, labels: list[str]) -> bool:
     """Is this line one of the labels we are looking for, on its own?
 
-    Equality, not containment. "Exit load of 1% if redeemed within 1 year" mentions
-    the label but is a sentence, and treating it as a label is how an extractive
-    answer ends up quoting a whole paragraph followed by " : ;".
+    See :func:`_label_tier`: equality for prose, containment for the short
+    field names the stacked cards use.
+
+    Args:
+        line: One line of chunk text.
+        labels: Expected labels, in priority order.
+
+    Returns:
+        ``True`` when the line names a field the intent cares about.
     """
-    candidate = line.strip().rstrip(":").strip().lower().replace("-", " ")
-    if not candidate or len(candidate) > 40:
-        return False
-    return any(candidate == label.lower().replace("-", " ") for label in labels)
+    return _label_tier(line, labels) is not None
 
 
 def _looks_like_value(line: str, labels: list[str]) -> bool:
@@ -196,24 +237,51 @@ def _label_facts(text: str, labels: list[str]) -> list[str]:
     The pair is rejoined into a sentence that still appears in the chunk once
     whitespace is normalised, so nothing is invented.
 
+    Only the *most precise* label tier is kept: a "min sip" question quotes the
+    SIP row, not every row whose label happens to contain ``investment``, which
+    is what used to make the answer read like a dump of the whole card.
+
     Args:
         text: Raw chunk text.
-        labels: Expected labels for the intent, in priority order.
+        labels: Expected labels, in priority order.
 
     Returns:
-        At most :data:`src.config.MAX_ANSWER_SENTENCES` facts.
+        At most :data:`src.config.MAX_ANSWER_SENTENCES` facts, best tier first.
     """
     if not labels:
         return []
     lines = [line.strip() for line in text.splitlines()]
-    facts: list[str] = []
+    hits: list[tuple[int, str]] = []
     for index, line in enumerate(lines[:-1]):
-        if not _is_label_line(line, labels) or not _looks_like_value(lines[index + 1], labels):
+        tier = _label_tier(line, labels)
+        if tier is None or not _looks_like_value(lines[index + 1], labels):
             continue
-        facts.append(f"{line.rstrip(':').strip()}: {lines[index + 1]}")
-        if len(facts) == config.MAX_ANSWER_SENTENCES:
-            break
-    return facts
+        hits.append((tier, f"{line.rstrip(':').strip()}: {lines[index + 1]}"))
+    if not hits:
+        return []
+    best = min(tier for tier, _ in hits)
+    return [
+        fact for tier, fact in hits if tier == best
+    ][: config.MAX_ANSWER_SENTENCES]
+
+
+def _join_facts(facts: list[str]) -> str:
+    """Punctuate label facts into readable sentences, verbatim.
+
+    Args:
+        facts: ``Label: value`` strings from :func:`_label_facts` or the
+            heading facts of :func:`_heading_fact`.
+
+    Returns:
+        The facts as complete sentences joined by a space.
+    """
+    parts: list[str] = []
+    for fact in facts:
+        clean = fact.strip()
+        if not clean.endswith((".", "!", "?")):
+            clean += "."
+        parts.append(clean)
+    return " ".join(parts)
 
 
 def _mentions(text: str, label: str) -> bool:
@@ -249,7 +317,31 @@ def _heading_fact(chunk: RetrievedChunk, labels: list[str]) -> str:
     heading = re.sub(r"\s+View details\s*$", "", match.group(1).strip())
     if not heading or _mentions(heading, chunk.label):
         return ""
-    return f"{chunk.label}: {heading}"
+    return f"{chunk.label}: {_tenure_heading(heading)}"
+
+
+def _tenure_heading(heading: str) -> str:
+    """Bracket a manager's tenure: ``Dhruv Muchhal (Jun 2023 - Present)``.
+
+    The raw heading reads as a run-on of name and dates. Only the punctuation
+    moves: the name and the period stay verbatim from the corpus.
+
+    Args:
+        heading: A stripped chunk heading, e.g. ``DM Dhruv Muchhal Jun 2023 -
+            Present``.
+
+    Returns:
+        The heading with the tenure bracketed, or the heading unchanged when it
+        is not a ``Name Mon YYYY - Present/Mon YYYY`` shape.
+    """
+    match = re.match(
+        r"^(?P<name>.+?)\s+"
+        r"(?P<period>[A-Z][a-z]{2}\s+\d{4}\s*-\s*(?:Present|[A-Z][a-z]{2}\s+\d{4}))$",
+        heading,
+    )
+    if not match:
+        return heading
+    return f"{match.group('name')} ({match.group('period')})"
 
 
 def _query_terms(plan: QueryPlan) -> list[str]:
@@ -326,13 +418,30 @@ def _pick_chunk(plan: QueryPlan, result: RetrievalResult) -> RetrievedChunk:
     return result.chunks[0]
 
 
+def _sentence_tier(sentence: str, labels: list[str]) -> int | None:
+    """The most precise expected label this sentence mentions, or ``None``.
+
+    Args:
+        sentence: One sentence of chunk text.
+        labels: Expected labels, in priority order.
+
+    Returns:
+        The index of the best-matching label, so sentences can be ranked the
+        same way :func:`_label_facts` ranks field rows.
+    """
+    wanted = [label.lower().replace("-", " ") for label in labels]
+    text = sentence.lower().replace("-", " ")
+    hits = [index for index, label in enumerate(wanted) if label and label in text]
+    return min(hits) if hits else None
+
+
 def _extractive_body(plan: QueryPlan, chunk: RetrievedChunk) -> str:
     """Build the answer body from ``chunk`` alone.
 
     Three passes, most precise first:
 
     1. ``Label: value`` pairs for the intent's expected labels.
-    2. Sentences that mention an expected label.
+    2. Sentences that mention an expected label, most precise label first.
     3. Sentences that mention a query term, then simply the first sentences.
 
     Every pass yields verbatim chunk content, so the "every number is in the context"
@@ -350,15 +459,23 @@ def _extractive_body(plan: QueryPlan, chunk: RetrievedChunk) -> str:
 
     facts = _label_facts(chunk.text, labels)
     if facts:
-        return " ".join(facts[:limit])
+        return _join_facts(facts[:limit])
 
     sentences = extract_sentences(chunk.text)
     if labels:
-        relevant = [
-            sentence for sentence in sentences if any(_mentions(sentence, l) for l in labels)
+        ranked = [
+            (tier, order, sentence)
+            for order, sentence in enumerate(sentences)
+            if (tier := _sentence_tier(sentence, labels)) is not None
         ]
-        if relevant:
-            return " ".join(relevant[:limit])
+        if ranked:
+            # Keep only the sentences whose label is the most precise one that
+            # matched: a lump-sum question must not quote the SIP row that
+            # merely shares the word "investment".
+            best = min(tier for tier, _, _ in ranked)
+            relevant = [sentence for tier, _, sentence in ranked if tier == best]
+            if relevant:
+                return " ".join(relevant[:limit])
         heading_fact = _heading_fact(chunk, labels)
         if heading_fact:
             return heading_fact
@@ -385,6 +502,10 @@ def _companion_facts(
     label grounds the same intent are checked for a heading fact the body is
     still missing, and appended within the sentence cap.
 
+    Only a field-value body is extended. A sentence body already answers the
+    question in prose, and bolting sibling section headings onto it produces the
+    stray-title fragments ("...: Availability") a reader cannot use.
+
     Every addition is a verbatim heading from a retrieved chunk, so the
     "everything quoted comes from the context" property still holds.
 
@@ -402,6 +523,11 @@ def _companion_facts(
     labels = guardrails.expected_labels(plan.intent)
     if not labels or not body.strip():
         return body
+    if not body.strip().startswith(f"{primary.label}:"):
+        # The body is a quoted sentence, not a field value. Bolting sibling
+        # headings onto a sentence answers reads as stray section titles
+        # ("...: Availability"), so companions only extend a field-value body.
+        return body
     budget = config.MAX_ANSWER_SENTENCES - config.sentence_count(body)
     if budget <= 0:
         return body
@@ -411,10 +537,11 @@ def _companion_facts(
             break
         if retrieved is primary:
             continue
-        if not any(
-            _mentions(f"{retrieved.label} {retrieved.section}", label)
-            for label in labels
-        ):
+        # The *label*, not label+section: a section title carries the scheme
+        # name, so matching on it would file every chunk of an ELSS scheme
+        # under "elss" and answer a lock-in question with the expense-ratio
+        # heading of a sibling card.
+        if not any(_mentions(retrieved.label, label) for label in labels):
             continue
         if not _has_body(plan, retrieved):
             continue
@@ -425,8 +552,40 @@ def _companion_facts(
         return body
     joined = body.strip()
     for fact in extra:
-        joined = f"{joined.rstrip().rstrip('.')}. {fact}"
+        label, sep, rest = fact.partition(":")
+        if sep and joined.startswith(f"{label}:"):
+            # Same field as the body: keep one label and list the values.
+            joined = f"{joined.rstrip().rstrip('.').rstrip(';')}; {rest.strip()}"
+        else:
+            joined = f"{joined.rstrip().rstrip('.')}. {fact}"
     return joined
+
+
+def _with_scheme_context(plan: QueryPlan, body: str) -> str:
+    """Prefix the scheme Stage 5 resolved, so a bare fact still says its fund.
+
+    The extractive body quotes a field ("Min. for SIP: ₹500") without ever
+    naming the scheme it belongs to, and a question asked across five funds
+    needs the fund on the face of the answer rather than one click away in
+    Sources.
+
+    Args:
+        plan: The Stage 5 plan.
+        body: The extractive body.
+
+    Returns:
+        ``body`` unchanged when no scheme was resolved, otherwise
+        ``"<scheme name> — <body>"``.
+    """
+    if not body.strip() or not plan.scheme_key:
+        return body
+    spec = next(
+        (source for source in config.SOURCES if source.scheme_key == plan.scheme_key),
+        None,
+    )
+    if spec is None:
+        return body
+    return f"{spec.scheme_name} — {body.strip()}"
 
 
 def answer_extractive(plan: QueryPlan, result: RetrievalResult) -> AssistantMessage:
@@ -451,7 +610,9 @@ def answer_extractive(plan: QueryPlan, result: RetrievalResult) -> AssistantMess
         return citation.finalise_refusal(refusal)
 
     chunk = _pick_chunk(plan, result)
-    body = _companion_facts(plan, result, chunk, _extractive_body(plan, chunk))
+    body = _with_scheme_context(
+        plan, _companion_facts(plan, result, chunk, _extractive_body(plan, chunk))
+    )
     response = LLMResponse(
         answer=body,
         source_index=chunk.rank,
